@@ -108,14 +108,28 @@ function tick() {
         const code = jsQR(imageData.data, imageData.width, imageData.height);
 
         if (code) {
-            // QR形式: "緯度,経度,場所名"
-            const data = code.data.split(',');
-            if (data.length >= 2) {
-                currentPos.x = parseFloat(data[0]);
-                currentPos.y = parseFloat(data[1]);
-                posDisplay.innerText = data[2] || `現在地(${currentPos.x.toFixed(4)}, ${currentPos.y.toFixed(4)})`;
-                stopCamera(); // スキャン成功で自動停止
-                document.getElementById('camBtn').innerText = "📷 カメラ起動 (QRスキャン)";
+            // 前後の空白を消し、カンマで分割
+            const data = code.data.split(',').map(s => s.trim());
+            
+            // データの個数に関わらず、最初の2つを数値として読み込む
+            const lat = parseFloat(data[0]);
+            const lng = parseFloat(data[1]);
+
+            // 数値として有効（NaNでない）かチェック
+            if (!isNaN(lat) && !isNaN(lng)) {
+                currentPos.x = lat;
+                currentPos.y = lng;
+                
+                // 3つ目のデータ（名前）があれば表示、なければ座標を表示
+                posDisplay.innerText = data[2] || `現在地(${lat.toFixed(4)}, ${lng.toFixed(4)})`;
+                
+                // スキャン成功でカメラ停止
+                stopCamera();
+                const btn = document.getElementById('camBtn');
+                if(btn) btn.innerText = "📷 カメラ起動 (QRスキャン)";
+                
+                updateNavigation();
+                return; // 解析終了
             }
         }
     }
