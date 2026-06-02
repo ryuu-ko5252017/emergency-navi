@@ -1,6 +1,6 @@
 // --- グローバル変数 ---
-let currentPos = { x: 0, y: 0 };
-let targetPos = { x: 0, y: 0 };
+let currentPos = { x: null, y: null }; 
+let targetPos = { x: null, y: null };
 let heading = 0;
 let videoStream = null;
 let points = JSON.parse(localStorage.getItem('nav_points')) || [];
@@ -12,10 +12,10 @@ const distDisplay = document.getElementById('dist');
 const accDisplay = document.getElementById('acc');
 const compass = document.getElementById('compass');
 
-// --- 1. 座標リストの管理機能 ---
-
+// --- 1. 座標リスト管理 ---
 function renderList() {
     const listEl = document.getElementById('point-list');
+    if(!listEl) return;
     listEl.innerHTML = points.map((p, i) => `
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; background:rgba(255,255,255,0.1); padding:8px; border-radius:4px;">
             <span onclick="setTarget(${i})" style="flex:1; cursor:pointer;">📍 ${p.name}</span>
@@ -24,10 +24,11 @@ function renderList() {
     `).join('');
 }
 
+// クリップボード取込機能の強化
 async function importFromClipboard() {
     try {
         const text = await navigator.clipboard.readText();
-        // Googleマップの座標形式 (緯度, 経度) を抽出
+        // Googleマップ形式: "34.7024, 135.4959" を正規表現で抽出
         const match = text.match(/(-?[0-9]+\.[0-9]+)\s*,\s*(-?[0-9]+\.[0-9]+)/);
         if (match) {
             const newPoint = {
@@ -37,17 +38,24 @@ async function importFromClipboard() {
             };
             points.push(newPoint);
             saveAndRender();
+            alert("座標を追加しました。リストから目的地を選択してください。");
         } else {
-            alert("クリップボードに「緯度, 経度」の形式が見つかりません");
+            alert("クリップボードに正しい座標（例: 34.123, 135.123）がありません。");
         }
     } catch (err) {
-        alert("クリップボードの読み取りを許可してください");
+        alert("ブラウザの設定でクリップボードの読み取りを許可してください。");
     }
 }
 
 function setTarget(index) {
     targetPos = points[index];
-    targetNameDisplay.innerText = targetPos.name;
+    if(targetNameDisplay) targetNameDisplay.innerText = targetPos.name;
+    updateNavigation();
+}
+
+function saveAndRender() {
+    localStorage.setItem('nav_points', JSON.stringify(points));
+    renderList();
 }
 
 function deletePoint(index) {
@@ -56,34 +64,26 @@ function deletePoint(index) {
 }
 
 function clearList() {
-    if(confirm("全てのリストを削除しますか？")) {
+    if(confirm("全リストを消去しますか？")) {
         points = [];
         saveAndRender();
     }
 }
 
-function saveAndRender() {
-    localStorage.setItem('nav_points', JSON.stringify(points));
-    renderList();
-}
-
 // --- 2. カメラ・QRスキャン制御 ---
-
 async function toggleCamera() {
     const btn = document.getElementById('camBtn');
     if (videoStream) {
         stopCamera();
-        btn.innerText = "📷 カメラ起動 (QRスキャン)";
+        if(btn) btn.innerText = "📷 カメラ起動 (QRスキャン)";
     } else {
         try {
-            videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+            videoStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: \"environment\" } });
             video.srcObject = videoStream;
             video.style.display = 'block';
-            btn.innerText = "× カメラを閉じる";
+            if(btn) btn.innerText = "× カメラを閉じる";
             requestAnimationFrame(tick);
-        } catch (e) {
-            alert("カメラの使用を許可してください");
-        }
+        } catch (e) { alert("カメラの使用を許可してください"); }
     }
 }
 
@@ -97,7 +97,6 @@ function stopCamera() {
 
 function tick() {
     if (!videoStream) return;
-
     if (video.readyState === video.HAVE_ENOUGH_DATA) {
         const canvas = document.getElementById('canvas');
         canvas.height = video.videoHeight;
@@ -108,28 +107,21 @@ function tick() {
         const code = jsQR(imageData.data, imageData.width, imageData.height);
 
         if (code) {
-            // 前後の空白を消し、カンマで分割
+            // カンマ区切りのデータを解析（Googleマップの2項目でも、名前付きの3項目でもOK）
             const data = code.data.split(',').map(s => s.trim());
-            
-            // データの個数に関わらず、最初の2つを数値として読み込む
             const lat = parseFloat(data[0]);
             const lng = parseFloat(data[1]);
 
-            // 数値として有効（NaNでない）かチェック
             if (!isNaN(lat) && !isNaN(lng)) {
                 currentPos.x = lat;
                 currentPos.y = lng;
-                
-                // 3つ目のデータ（名前）があれば表示、なければ座標を表示
                 posDisplay.innerText = data[2] || `現在地(${lat.toFixed(4)}, ${lng.toFixed(4)})`;
                 
-                // スキャン成功でカメラ停止
                 stopCamera();
                 const btn = document.getElementById('camBtn');
                 if(btn) btn.innerText = "📷 カメラ起動 (QRスキャン)";
-                
                 updateNavigation();
-                return; // 解析終了
+                return; 
             }
         }
     }
@@ -138,23 +130,22 @@ function tick() {
 }
 
 // --- 3. センサーと方位計算 ---
-
 window.addEventListener('deviceorientation', (event) => {
-    // iOS/Android両対応の方位取得
     heading = event.webkitCompassHeading || (360 - event.alpha);
-    accDisplay.innerText = event.absolute ? "高" : "低";
+    if(accDisplay) accDisplay.innerText = event.absolute ? \"高\" : \"低\";
+    updateNavigation();
 }, true);
 
 function updateNavigation() {
-    if (!currentPos.x || !targetPos.x) return;
+    if (currentPos.x === null || targetPos.x === null) return;
 
-    const dx = targetPos.y - currentPos.y; // 経度差
     const dy = targetPos.x - currentPos.x; // 緯度差
+    const dx = targetPos.y - currentPos.y; // 経度差
     
-    // 簡易的な距離計算 (緯度経度をそのまま平面として扱う)
-    // ※本来はヒュベニの公式等が必要ですが、近距離ならこれで動きます
-    const distance = Math.sqrt(dx * dx + dy * dy) * 111320; // 度からメートルへ概算
+    // 距離計算（度をメートルに概算）
+    const distance = Math.sqrt(dx * dx + dy * dy) * 111320; 
     
+    // 方位計算
     const angleToTarget = Math.atan2(dx, dy) * (180 / Math.PI);
     const relativeAngle = angleToTarget - heading;
     
