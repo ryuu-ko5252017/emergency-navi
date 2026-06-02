@@ -1,3 +1,11 @@
+// Service Workerの登録
+if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW registered'))
+            .catch(err => console.log('SW registration failed', err));
+    });
+}
 const video = document.getElementById('video');
 const posDisplay = document.getElementById('pos');
 const distDisplay = document.getElementById('dist');
